@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
-from sklearn import svm
+from sklearn.linear_model import SGDClassifier
+from parse_obj_xml.py import load_obj
+import copy
 
 e_threshold = 0.1
 o_threshold = 10
@@ -18,24 +20,35 @@ class MDP(object):
         self.detection = detection
         self.overlaps = []
         self.lost_svm = trained_svm
+        self.gts = gts # list of dictionaries for the frame
 
     def get_image(self, index):
         img_file = self.image_prefix + str(index) + self.image_suffix
         img = cv2.imread(img_file)
         return cv2.cvtColor(img, cv2.BGR2GRAY)
 
-    def active_state(self):
-        # threshold the probability
-        reward = self.detection['percentage_probability'] - 80.0
-        reward = max(reward, -20)
-        if reward < 0:
-            # inactive
-            return (2, reward)
-        else:
-            # track
-            return (1, reward)
+    def active_state(self, all_gts):
+        best_obj = -1
+        best_overlap = 0
+        for i in xrange(len(gts)):
+            dx = min(self.detection['bb'][2], all_gts[i]['bb'][2]) - max(self.detection['bb'][0], all_gts[i]['bb'][0])
+            dy = min(self.detection['bb'][2], all_gts[i]['bb'][2]) - max(self.detection['bb'][1], all_gts[i]['bb'][1])
 
-    def tracked_state(self, all_detections):
+            if dx > 0 and dy > 0:
+                overlap = dx * dy
+            else:
+                overlap = 0
+
+            if best_overlap < overlap:
+                best_overlap = overlap
+                best_obj = all_gts[i]['id']
+        self.obj_id = best_obj
+        if self.obj_id == -1:
+            self.state_type = 'inactive'
+        else:
+            self.state_type = 'tracked'
+
+    def tracked_state(self, all_detections, all_gts):
         x0 = self.bounding_box[0]
         x1 = self.bounding_box[2]
         y0 = self.bounding_box[1]
@@ -199,14 +212,86 @@ class MDP(object):
 
 
 
-
-
-
-
-        
-
     def lost_state_train(self, ground_truth):
-        pass
+        x0 = self.bounding_box[0]
+        x1 = self.bounding_box[2]
+        y0 = self.bounding_box[1]
+        y1 = self.bounding_box[3]
+
+        curr_img = self.get_image(self.image_index)
+
+        template = self.curr_img[y0:y1, x0:x1]
+
+        lk_params = dict( winSize  = (10, 10), 
+            maxLevel = 5, 
+            criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03)) 
+
+        feature_params = dict(maxCorners = 3000,
+            qualityLevel = 0.5,
+            minDistance = 3,
+            blockSize = 3)
+
+        # get some feature points
+        pts = cv2.goodFeaturesToTrack(template, **feature_params)
+
+        # add corners
+        pts.append(np.array([[x0, y0]]))
+        pts.append(np.array([[x0, y1]]))
+        pts.append(np.array([[x1, y0]]))
+        pts.append(np.array([[x1, y1]]))
+
+        # Add the (x0, y0) offset back, because good features were found on the 
+        # template image
+        for i in range(len(pts)):
+            pts[i][0][0] += x0
+            pts[i][0][1] += y0
+
+
+        p0 = np.float32(pt).reshape(-1, 1, 2)
+        new_img = self.get_image(self.image_index + 1)
+        
+        # perform LK tracking
+        p1, st, err = cv2.calcOpticalFlowPyrLK(curr_img, new_img, p0, None, **lk_params)
+
+        p1 = p1.reshape(-1, 2)
+        p1_min = np.min(p1, axis=0)
+        p1_max = np.max(p1, axis=0)
+        bounding_box = [p1_min[0], p1_min[1], p1_max[0], p1_max[1]]
+        
+        # for forward-backward
+        p0r, st, err = cv2.calcOpticalFlowPyrLK(new_img, curr_img, p1, None, **lk_params)
+        fb_error = np.linalg.norm(p0-p0r)
+
+        box_center_x = (bounding_box[2] - bounding_box[0]) / 2
+        box_center_y = (bounding_box[3] - bounding_box[1]) / 2
+        box_center = np.array([box_center_x, box_center_y])
+
+        old_height = self.bounding_box[3] - self.bounding_box[1]
+        new_height = bounding_box[3] - bounding_box[1]
+
+        LK_height_ratio = new_height / old_height
+
+        for det in all_detections:
+            score = det['percentage_probability']
+
+            dx = min(bounding_box[2], det['box_points'][2]) - max(bounding_box[0], det['box_points'][0])
+            dy = min(bounding_box[3], det['box_points'][3]) - max(bounding_box[1], det['box_points'][1])
+
+            if dx > 0 and dy > 0:
+                overlap = dx * dy
+            else:
+                overlap = 0
+
+            det_center_x = (det['box_points'][2] - det['box_points'][0]) / 2
+            det_center_y = (det['box_points'][3] - det['box_points'][1]) / 2
+            det_center = np.array([det_center_x, det_center_y])
+            dist = np.linalg.norm(box_center - det_center)
+
+            det_height = det['box_points'][3] - det['box_points'][1]
+            det_height_ratio = new_height / det_height
+
+            features = np.array([dist, fb_error, overlap, det_height_ratio, LK_height_ratio])
+            pred = self.lost_svm.predict(features)
 
 
         
@@ -249,5 +334,54 @@ class MDP(object):
         else:
             self.state_type = 'inactive'
             return 0
+
+def train(gt_fname, det_fname):
+    MDP_dict = {}
+    gts = load_obj(gt_fname)
+    dets = load_obj(det_fname)
+
+    # Create new MDP's for every detection in the first frame
+    first_gt = gts[1]
+    first_det = dets[1]
+    for det in first_det:
+        m = MDP(det)
+        m.active_state(first_gt)
+        if m.obj_id != -1:
+            MDP_dict[m.obj_id] = m
+
+    for i in xrange(2, len(gts)+1):
+        curr_dets = copy.deepcopy(dets[i])
+        curr_gts = gts[i]
+        seen = {}
+        for key in MDP_dict:
+            if MDP_dict[key].state_type == 'tracked':
+                det = m.tracked_state(curr_dets, curr_gts)
+                if det != None:
+                    curr_dets.remove(det)
+                seen[key] = 0
+
+        for key in MDP_dict:
+            if MDP_dict[key].state_type == 'lost' and key not in seen:
+                det = m.lost_state()
+                if det != None:
+                    curr_dets.remove(det)
+                seen[key] = 0
+
+        for elem in curr_dets:
+            m = MDP(det)
+            m.active_state(first_gt)
+            if m.obj_id != -1 and m.obj_id not in MDP_dict:
+                MDP_dict[m.obj_id] = m
+
+    
+
+
+
+
+
+
+
+
+
 
 
