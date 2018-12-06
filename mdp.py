@@ -16,7 +16,6 @@ class MDP(object):
     def __init__(self, image_prefix, first_image_index, image_suffix, detection, trained_svm):
         self.state_type = 'active'
         self.LK_tracker = None
-        self.bounding_box = detection['box_points']
         self.image_prefix = image_prefix
         self.image_index = first_image_index
         self.image_suffix = image_suffix
@@ -111,8 +110,8 @@ class MDP(object):
         # find the overlap among the object detections in the next image
         best_overlap = -1
         for det in all_detections:
-            dx = min(bounding_box[2], det['box_points'][2]) - max(bounding_box[0], det['box_points'][0])
-            dy = min(bounding_box[3], det['box_points'][3]) - max(bounding_box[1], det['box_points'][1])
+            dx = min(bounding_box[2], det['bb'][2]) - max(bounding_box[0], det['bb'][0])
+            dy = min(bounding_box[3], det['bb'][3]) - max(bounding_box[1], det['bb'][1])
 
             if dx > 0 and dy > 0:
                 overlap = dx * dy
@@ -127,9 +126,9 @@ class MDP(object):
         
         if o_mean > o_threshold and e_med < e_threshold:
             self.overlaps.append(best_overlap)
-            return (3, 1)
+            self.state_type = 'tracked'
         else:
-            return (4, -1)
+            self.state_type = 'lost'
 
     def lost_state_common(self, all_detections):
         x0 = self.bounding_box[0]
@@ -228,46 +227,12 @@ class MDP(object):
         preds = np.array(preds)
         max_index = np.argmax(preds)
 
-    def lost_state_train(self, ground_truth):
-        x0 = self.bounding_box[0]
-        x1 = self.bounding_box[2]
-        y0 = self.bounding_box[1]
-        y1 = self.bounding_box[3]
-
-        curr_img = self.get_image(self.image_index)
-
-        template = self.curr_img[y0:y1, x0:x1]
-
-        lk_params = dict( winSize  = (10, 10), 
-            maxLevel = 5, 
-            criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03)) 
-
-        feature_params = dict(maxCorners = 3000,
-            qualityLevel = 0.5,
-            minDistance = 3,
-            blockSize = 3)
-
-        # get some feature points
-        pts = cv2.goodFeaturesToTrack(template, **feature_params)
-        max_pred = preds[max_index]
-        if max_pred < 0:
-            return (5, max_pred)
+        if preds[max_index] > 0:
+            self.state_type = 'tracked'
         else:
-            return (6, max_pred)
+            self.state_type = 'lost'
 
-        # add corners
-        pts.append(np.array([[x0, y0]]))
-        pts.append(np.array([[x0, y1]]))
-        pts.append(np.array([[x1, y0]]))
-        pts.append(np.array([[x1, y1]]))
-
-        # Add the (x0, y0) offset back, because good features were found on the 
-        # template image
-        for i in range(len(pts)):
-            pts[i][0][0] += x0
-            pts[i][0][1] += y0
-
-    def lost_state_train(self, all_detections, ground_truth):
+    def lost_state_train(self, all_detections, gt):
         preds, features = self.lost_state_common(all_detections)
         pred_detection = np.argmax(preds)
 
@@ -276,30 +241,34 @@ class MDP(object):
 
         best_overlap = -1
         best_detection = -1
-        for i in range(len(all_detections)):
-            det = all_detections[i]
 
-            dx = min(bounding_box[2], det['box_points'][2]) - max(bounding_box[0], det['box_points'][0])
-            dy = min(bounding_box[3], det['box_points'][3]) - max(bounding_box[1], det['box_points'][1])
-
-            if dx > 0 and dy > 0:
-                overlap = dx * dy
-            else:
-                overlap = -1
-
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_detection = i
-
-        k_overlaps = self.overlaps[-(k-1):] + [best_overlap]
-        o_mean = statistics.mean(k_overlaps)
-        if o_mean > o_threshold:
-            self.overlaps.append(best_overlap)
-            gt_action = 6
-            gt_detection = best_detection
-        else:
-            gt_action = 5
+        if ground_truth == None:
             gt_detection = -1
+        else:
+            for i in range(len(all_detections)):
+                det = all_detections[i]
+
+                dx = min(gt['bb'][2], det['bb'][2]) - max(gt['bb'][0], det['bb'][0])
+                dy = min(gt['bb'][3], det['bb'][3]) - max(gt['bb'][1], det['bb'][1])
+
+                if dx > 0 and dy > 0:
+                    overlap = dx * dy
+                else:
+                    overlap = -1
+
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_detection = i
+
+            k_overlaps = self.overlaps[-(k-1):] + [best_overlap]
+            o_mean = statistics.mean(k_overlaps)
+            if o_mean > o_threshold:
+                self.overlaps.append(best_overlap)
+                gt_action = 6
+                gt_detection = best_detection
+            else:
+                gt_action = 5
+                gt_detection = -1
 
 
         if pred_detection != gt_detection:
@@ -312,93 +281,6 @@ class MDP(object):
 
                 self.classifier.partial_fit(X, y)
 
-        p0 = np.float32(pt).reshape(-1, 1, 2)
-        new_img = self.get_image(self.image_index + 1)
-        
-        # perform LK tracking
-        p1, st, err = cv2.calcOpticalFlowPyrLK(curr_img, new_img, p0, None, **lk_params)
-
-        p1 = p1.reshape(-1, 2)
-        p1_min = np.min(p1, axis=0)
-        p1_max = np.max(p1, axis=0)
-        bounding_box = [p1_min[0], p1_min[1], p1_max[0], p1_max[1]]
-        
-        # for forward-backward
-        p0r, st, err = cv2.calcOpticalFlowPyrLK(new_img, curr_img, p1, None, **lk_params)
-        fb_error = np.linalg.norm(p0-p0r)
-
-        box_center_x = (bounding_box[2] - bounding_box[0]) / 2
-        box_center_y = (bounding_box[3] - bounding_box[1]) / 2
-        box_center = np.array([box_center_x, box_center_y])
-
-        old_height = self.bounding_box[3] - self.bounding_box[1]
-        new_height = bounding_box[3] - bounding_box[1]
-
-        LK_height_ratio = new_height / old_height
-
-        for det in all_detections:
-            score = det['percentage_probability']
-
-            dx = min(bounding_box[2], det['box_points'][2]) - max(bounding_box[0], det['box_points'][0])
-            dy = min(bounding_box[3], det['box_points'][3]) - max(bounding_box[1], det['box_points'][1])
-
-            if dx > 0 and dy > 0:
-                overlap = dx * dy
-            else:
-                overlap = 0
-
-            det_center_x = (det['box_points'][2] - det['box_points'][0]) / 2
-            det_center_y = (det['box_points'][3] - det['box_points'][1]) / 2
-            det_center = np.array([det_center_x, det_center_y])
-            dist = np.linalg.norm(box_center - det_center)
-
-            det_height = det['box_points'][3] - det['box_points'][1]
-            det_height_ratio = new_height / det_height
-
-            features = np.array([dist, fb_error, overlap, det_height_ratio, LK_height_ratio])
-            pred = self.lost_svm.predict(features)
-
-
-        
-
-
-    def transition(self, action):
-        if self.state_type == 'active':
-            if action not in [1,2]:
-                return False
-            elif action == 1:
-                self.state_type = 'tracked'
-                return active_reward(1)
-            else:
-                self.state_type = 'inactive'
-                return active_reward(2)
-
-        elif self.state_type == 'tracked':
-            if action not in [3,4]:
-                return False
-            elif action == 3:
-                self.state_type = 'tracked'
-                return tracked_reward(3)
-            else:
-                self.state_type = 'lost'
-                return tracked_reward(4)
-
-        elif self.state_type == 'lost':
-            if action not in [5,6,7]:
-                return False
-            elif action == 5:
-                self.state_type = 'lost'
-                return lost_reward(5)
-            elif action == 6:
-                self.state_type = 'tracked'
-                return lost_reward(6)
-            else:
-                self.state_type = 'inactive'
-                return lost_reward(7)
-
-        else:
-            self.state_type = 'inactive'
-            return 0
 
 def train(gt_fname, det_fname):
     MDP_dict = {}
