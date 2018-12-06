@@ -1,8 +1,11 @@
 import cv2
 import numpy as np
 from sklearn.linear_model import SGDClassifier
+<<<<<<< HEAD
 from parse_obj_xml.py import load_obj
 import copy
+=======
+>>>>>>> edff65027455228a0796a6c0d5677689e5ac4bad
 
 e_threshold = 0.1
 o_threshold = 10
@@ -19,8 +22,8 @@ class MDP(object):
         self.image_suffix = image_suffix
         self.detection = detection
         self.overlaps = []
-        self.lost_svm = trained_svm
         self.gts = gts # list of dictionaries for the frame
+        self.classifier = trained_svm
 
     def get_image(self, index):
         img_file = self.image_prefix + str(index) + self.image_suffix
@@ -128,7 +131,7 @@ class MDP(object):
         else:
             return (4, -1)
 
-    def lost_state(self):
+    def lost_state_common(self, all_detections):
         x0 = self.bounding_box[0]
         x1 = self.bounding_box[2]
         y0 = self.bounding_box[1]
@@ -187,6 +190,9 @@ class MDP(object):
 
         LK_height_ratio = new_height / old_height
 
+        i = 0
+        dets_to_save = []
+        all_features = []
         for det in all_detections:
             score = det['percentage_probability']
 
@@ -207,10 +213,20 @@ class MDP(object):
             det_height_ratio = new_height / det_height
 
             features = np.array([dist, fb_error, overlap, det_height_ratio, LK_height_ratio])
-            pred = self.lost_svm.predict(features)
+            pred = self.classifier.decision_function(features)
 
+            preds.append(pred)
+            all_features.append(features)
+            i+= 1
 
+        return (preds, features)
+        
 
+    def lost_state(self, all_detections):
+        preds, features = self.lost_state_common(all_detections)
+
+        preds = np.array(preds)
+        max_index = np.argmax(preds)
 
     def lost_state_train(self, ground_truth):
         x0 = self.bounding_box[0]
@@ -233,6 +249,11 @@ class MDP(object):
 
         # get some feature points
         pts = cv2.goodFeaturesToTrack(template, **feature_params)
+        max_pred = preds[max_index]
+        if max_pred < 0:
+            return (5, max_pred)
+        else:
+            return (6, max_pred)
 
         # add corners
         pts.append(np.array([[x0, y0]]))
@@ -246,6 +267,50 @@ class MDP(object):
             pts[i][0][0] += x0
             pts[i][0][1] += y0
 
+    def lost_state_train(self, all_detections, ground_truth):
+        preds, features = self.lost_state_common(all_detections)
+        pred_detection = np.argmax(preds)
+
+        if preds[pred_detection] <= 0:
+            pred_detection = -1
+
+        best_overlap = -1
+        best_detection = -1
+        for i in range(len(all_detections)):
+            det = all_detections[i]
+
+            dx = min(bounding_box[2], det['box_points'][2]) - max(bounding_box[0], det['box_points'][0])
+            dy = min(bounding_box[3], det['box_points'][3]) - max(bounding_box[1], det['box_points'][1])
+
+            if dx > 0 and dy > 0:
+                overlap = dx * dy
+            else:
+                overlap = -1
+
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_detection = i
+
+        k_overlaps = self.overlaps[-(k-1):] + [best_overlap]
+        o_mean = statistics.mean(k_overlaps)
+        if o_mean > o_threshold:
+            self.overlaps.append(best_overlap)
+            gt_action = 6
+            gt_detection = best_detection
+        else:
+            gt_action = 5
+            gt_detection = -1
+
+
+        if pred_detection != gt_detection:
+            for i in range(len(all_detections)):
+                X = features[i]
+                if gt_detection == i:
+                    y = 1
+                else:
+                    y = -1
+
+                self.classifier.partial_fit(X, y)
 
         p0 = np.float32(pt).reshape(-1, 1, 2)
         new_img = self.get_image(self.image_index + 1)
