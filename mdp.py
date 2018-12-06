@@ -6,6 +6,8 @@ import copy
 import os
 import statistics
 import keras
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
 
 k = 4
 
@@ -46,6 +48,10 @@ images = ['000001.jpg', '000002.jpg', '000003.jpg', '000004.jpg', '000005.jpg',
 '000171.jpg', '000172.jpg', '000173.jpg', '000174.jpg', '000175.jpg', 
 '000176.jpg', '000177.jpg', '000178.jpg', '000179.jpg']
 
+def get_image(index):
+    img_file = '/home/rohit497/16-720/Project/MultiObjectTracking/2DMOT2015/train/TUD-Stadtmitte/img1/' + images[index]
+    img = cv2.imread(img_file)
+    return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
 class MDP(object):
     def __init__(self, detection, trained_svm, gts):
@@ -58,7 +64,7 @@ class MDP(object):
         self.image_index = 0
 
     def get_image(self, index):
-        img_file = 'data/train/TUD-Stadtmitte/img1/' + images[index]
+        img_file = '/home/rohit497/16-720/Project/MultiObjectTracking/2DMOT2015/train/TUD-Stadtmitte/img1/' + images[index]
         img = cv2.imread(img_file)
         return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
@@ -340,16 +346,28 @@ def train(gt_fname, det_fname):
         if m.obj_id != -1:
             MDP_dict[m.obj_id] = m
 
+    im = get_image(0)
+
+    for det in first_det:
+        cv2.rectangle(im,(int(det['bb'][0]),int(det['bb'][1])),(int(det['bb'][2]),int(det['bb'][3])),(0,255,0),1)
+    cv2.imshow("image", im)
+    cv2.waitKey(0)
+
+
+
     for i in range(2, len(gts)+1):
         print('Iter ' + str(i))
         curr_dets = copy.deepcopy(dets[i]).tolist()
         curr_gts = gts[i]
         seen = {}
 
+        im = get_image(i-1)
+
         for key in MDP_dict:
             if MDP_dict[key].state_type == 'tracked':
                 det = m.tracked_state(curr_dets, curr_gts)
                 if det != -1:
+                    cv2.rectangle(im,(int(curr_dets[det]['bb'][0]),int(curr_dets[det]['bb'][1])),(int(curr_dets[det]['bb'][2]),int(curr_dets[det]['bb'][3])),(0,255,0),1)
                     curr_dets = curr_dets[:det] + curr_dets[det+1:]
             elif MDP_dict[key].state_type == 'lost':
                 imp_gt = None
@@ -367,6 +385,10 @@ def train(gt_fname, det_fname):
             m.active_state(first_gt)
             if m.obj_id != -1 and m.obj_id not in MDP_dict:
                 MDP_dict[m.obj_id] = m
+                cv2.rectangle(im,(int(elem['bb'][0]),int(elem[det]['bb'][1])),(int(elem['bb'][2]),int(elem['bb'][3])),(0,255,0),1)
+
+        cv2.imshow('iage', im)
+        cv2.waitKey(0)
 
 def test(gt_fname, det_fname):
     MDP_dict = {}
@@ -406,12 +428,8 @@ def test(gt_fname, det_fname):
             if m.obj_id != -1 and m.obj_id not in MDP_dict:
                 MDP_dict[m.obj_id] = m
 
-    
 
-
-
-
-train('data/train/TUD-Stadtmitte/gt/gt.txt', 'data/train/TUD-Stadtmitte/det/det.txt')
+train('/home/rohit497/16-720/Project/MultiObjectTracking/2DMOT2015/train/TUD-Stadtmitte/gt/gt.txt', '/home/rohit497/16-720/Project/MultiObjectTracking/2DMOT2015/train/TUD-Stadtmitte/det/det.txt')
 
 
 
