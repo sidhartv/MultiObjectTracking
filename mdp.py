@@ -1,38 +1,71 @@
 import cv2
 import numpy as np
 from sklearn.linear_model import SGDClassifier
-<<<<<<< HEAD
-from parse_obj_xml.py import load_obj
+from parse_obj_xml import load_obj
 import copy
-=======
->>>>>>> edff65027455228a0796a6c0d5677689e5ac4bad
+import os
+import statistics
+import keras
 
-e_threshold = 0.1
-o_threshold = 10
 k = 4
+
+images = ['000001.jpg', '000002.jpg', '000003.jpg', '000004.jpg', '000005.jpg', 
+'000006.jpg', '000007.jpg', '000008.jpg', '000009.jpg', '000010.jpg', 
+'000011.jpg', '000012.jpg', '000013.jpg', '000014.jpg', '000015.jpg', 
+'000016.jpg', '000017.jpg', '000018.jpg', '000019.jpg', '000020.jpg', 
+'000021.jpg', '000022.jpg', '000023.jpg', '000024.jpg', '000025.jpg', 
+'000026.jpg', '000027.jpg', '000028.jpg', '000029.jpg', '000030.jpg',
+'000031.jpg', '000032.jpg', '000033.jpg', '000034.jpg', '000035.jpg', 
+'000036.jpg', '000037.jpg', '000038.jpg', '000039.jpg', '000040.jpg', 
+'000041.jpg', '000042.jpg', '000043.jpg', '000044.jpg', '000045.jpg',
+'000046.jpg', '000047.jpg', '000048.jpg', '000049.jpg', '000050.jpg',
+'000051.jpg', '000052.jpg', '000053.jpg', '000054.jpg', '000055.jpg', 
+'000056.jpg', '000057.jpg', '000058.jpg', '000059.jpg', '000060.jpg',
+'000061.jpg', '000062.jpg', '000063.jpg', '000064.jpg', '000065.jpg', 
+'000066.jpg', '000067.jpg', '000068.jpg', '000069.jpg', '000070.jpg',
+'000071.jpg', '000072.jpg', '000073.jpg', '000074.jpg', '000075.jpg',
+'000076.jpg', '000077.jpg', '000078.jpg', '000079.jpg', '000080.jpg',
+'000081.jpg', '000082.jpg', '000083.jpg', '000084.jpg', '000085.jpg', 
+'000086.jpg', '000087.jpg', '000088.jpg', '000089.jpg', '000090.jpg', 
+'000091.jpg', '000092.jpg', '000093.jpg', '000094.jpg', '000095.jpg', 
+'000096.jpg', '000097.jpg', '000098.jpg', '000099.jpg', '000100.jpg', 
+'000101.jpg', '000102.jpg', '000103.jpg', '000104.jpg', '000105.jpg', 
+'000106.jpg', '000107.jpg', '000108.jpg', '000109.jpg', '000110.jpg', 
+'000111.jpg', '000112.jpg', '000113.jpg', '000114.jpg', '000115.jpg', 
+'000116.jpg', '000117.jpg', '000118.jpg', '000119.jpg', '000120.jpg', 
+'000121.jpg', '000122.jpg', '000123.jpg', '000124.jpg', '000125.jpg', 
+'000126.jpg', '000127.jpg', '000128.jpg', '000129.jpg', '000130.jpg', 
+'000131.jpg', '000132.jpg', '000133.jpg', '000134.jpg', '000135.jpg', 
+'000136.jpg', '000137.jpg', '000138.jpg', '000139.jpg', '000140.jpg', 
+'000141.jpg', '000142.jpg', '000143.jpg', '000144.jpg', '000145.jpg', 
+'000146.jpg', '000147.jpg', '000148.jpg', '000149.jpg', '000150.jpg', 
+'000151.jpg', '000152.jpg', '000153.jpg', '000154.jpg', '000155.jpg', 
+'000156.jpg', '000157.jpg', '000158.jpg', '000159.jpg', '000160.jpg', 
+'000161.jpg', '000162.jpg', '000163.jpg', '000164.jpg', '000165.jpg', 
+'000166.jpg', '000167.jpg', '000168.jpg', '000169.jpg', '000170.jpg', 
+'000171.jpg', '000172.jpg', '000173.jpg', '000174.jpg', '000175.jpg', 
+'000176.jpg', '000177.jpg', '000178.jpg', '000179.jpg']
 
 
 class MDP(object):
-    def __init__(self, image_prefix, first_image_index, image_suffix, detection, trained_svm):
+    def __init__(self, detection, trained_svm, gts):
         self.state_type = 'active'
-        self.LK_tracker = None
-        self.image_prefix = image_prefix
-        self.image_index = first_image_index
-        self.image_suffix = image_suffix
         self.detection = detection
         self.overlaps = []
         self.gts = gts # list of dictionaries for the frame
         self.classifier = trained_svm
+        self.bounding_box = self.detection['bb']
+        self.image_index = 0
 
     def get_image(self, index):
-        img_file = self.image_prefix + str(index) + self.image_suffix
+        img_file = 'data/train/TUD-Stadtmitte/img1/' + images[index]
         img = cv2.imread(img_file)
-        return cv2.cvtColor(img, cv2.BGR2GRAY)
+        return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     def active_state(self, all_gts):
         best_obj = -1
         best_overlap = 0
-        for i in xrange(len(gts)):
+        for i in range(len(all_gts)):
             dx = min(self.detection['bb'][2], all_gts[i]['bb'][2]) - max(self.detection['bb'][0], all_gts[i]['bb'][0])
             dy = min(self.detection['bb'][2], all_gts[i]['bb'][2]) - max(self.detection['bb'][1], all_gts[i]['bb'][1])
 
@@ -51,6 +84,7 @@ class MDP(object):
             self.state_type = 'tracked'
 
     def tracked_state(self, all_detections, all_gts):
+        
         x0 = self.bounding_box[0]
         x1 = self.bounding_box[2]
         y0 = self.bounding_box[1]
@@ -58,7 +92,9 @@ class MDP(object):
 
         curr_img = self.get_image(self.image_index)
 
-        template = self.curr_img[y0:y1, x0:x1]
+        #cv2.getRectSubPix(curr_img, (x1 - x0, y1 - y0), ((x1 - x0)/2, (y1-y0)/2))
+
+        #template = curr_img[int(y0):int(y1), int(x0):int(x1)]
 
         lk_params = dict( winSize  = (10, 10), 
             maxLevel = 5, 
@@ -69,21 +105,12 @@ class MDP(object):
             minDistance = 3,
             blockSize = 3)
 
-        # get some feature points
-        pts = cv2.goodFeaturesToTrack(template, **feature_params)
+        pts = np.array([[x0,x0], [x0, y1], [x1, y0], [x1, y1]])
+        for x in np.linspace(x0, x1, num=10):
+            for y in np.linspace(y0, y1, num=10):
+                pts = np.vstack((pts, np.array([x,y])))
 
-        # add corners
-        pts.append(np.array([[0, 0]]))
-        pts.append(np.array([[0, y1-y0]]))
-        pts.append(np.array([[x1-x0, 0]]))
-        pts.append(np.array([[x1-x0, y1-y0]]))
-
-        # Add the (x0, y0) offset back, because good features were found on the 
-        # template image
-        for i in range(len(pts)):
-            pts[i][0][0] += x0
-            pts[i][0][1] += y0
-
+        pts = pts.reshape((-1, 1, 2))
 
         p0 = np.float32(pts).reshape(-1, 1, 2)
         new_img = self.get_image(self.image_index + 1)
@@ -93,7 +120,6 @@ class MDP(object):
         
         # for forward-backward
         p0r, st, err = cv2.calcOpticalFlowPyrLK(new_img, curr_img, p1, None, **lk_params)
-
 
         p1 = p1.reshape(-1, 2)
         p1_min = np.min(p1, axis=0)
@@ -109,26 +135,32 @@ class MDP(object):
 
         # find the overlap among the object detections in the next image
         best_overlap = -1
-        for det in all_detections:
+        best_det = -1
+        for i in range(len(all_detections)):
+            det = all_detections[i]
             dx = min(bounding_box[2], det['bb'][2]) - max(bounding_box[0], det['bb'][0])
             dy = min(bounding_box[3], det['bb'][3]) - max(bounding_box[1], det['bb'][1])
 
             if dx > 0 and dy > 0:
                 overlap = dx * dy
             else:
-                overlap = 0
+                overlap = -1
 
             if best_overlap < overlap:
                 best_overlap = overlap
+                best_det = i
 
         k_overlaps = self.overlaps[-(k-1):] + [best_overlap]
-        o_mean = statistics.mean(k_overlaps)
+        o_mean = np.mean(k_overlaps)
         
-        if o_mean > o_threshold and e_med < e_threshold:
+        if o_mean > 5000 and e_med < 0.05:
             self.overlaps.append(best_overlap)
             self.state_type = 'tracked'
         else:
             self.state_type = 'lost'
+
+        self.image_index += 1
+        return best_det
 
     def lost_state_common(self, all_detections):
         x0 = self.bounding_box[0]
@@ -138,7 +170,7 @@ class MDP(object):
 
         curr_img = self.get_image(self.image_index)
 
-        template = self.curr_img[y0:y1, x0:x1]
+        #template = self.curr_img[y0:y1, x0:x1]
 
         lk_params = dict( winSize  = (10, 10), 
             maxLevel = 5, 
@@ -150,22 +182,15 @@ class MDP(object):
             blockSize = 3)
 
         # get some feature points
-        pts = cv2.goodFeaturesToTrack(template, **feature_params)
+        pts = np.array([[x0,x0], [x0, y1], [x1, y0], [x1, y1]])
+        for x in np.linspace(x0, x1, num=10):
+            for y in np.linspace(y0, y1, num=10):
+                pts = np.vstack((pts, np.array([x,y])))
 
-        # add corners
-        pts.append(np.array([[x0, y0]]))
-        pts.append(np.array([[x0, y1]]))
-        pts.append(np.array([[x1, y0]]))
-        pts.append(np.array([[x1, y1]]))
-
-        # Add the (x0, y0) offset back, because good features were found on the 
-        # template image
-        for i in range(len(pts)):
-            pts[i][0][0] += x0
-            pts[i][0][1] += y0
+        pts = pts.reshape((-1, 1, 2))
 
 
-        p0 = np.float32(pt).reshape(-1, 1, 2)
+        p0 = np.float32(pts).reshape(-1, 1, 2)
         new_img = self.get_image(self.image_index + 1)
         
         # perform LK tracking
@@ -192,35 +217,35 @@ class MDP(object):
         i = 0
         dets_to_save = []
         all_features = []
+        preds = []
         for det in all_detections:
-            score = det['percentage_probability']
+            score = det['conf']
 
-            dx = min(bounding_box[2], det['box_points'][2]) - max(bounding_box[0], det['box_points'][0])
-            dy = min(bounding_box[3], det['box_points'][3]) - max(bounding_box[1], det['box_points'][1])
+            dx = min(bounding_box[2], det['bb'][2]) - max(bounding_box[0], det['bb'][0])
+            dy = min(bounding_box[3], det['bb'][3]) - max(bounding_box[1], det['bb'][1])
 
             if dx > 0 and dy > 0:
                 overlap = dx * dy
             else:
                 overlap = 0
 
-            det_center_x = (det['box_points'][2] - det['box_points'][0]) / 2
-            det_center_y = (det['box_points'][3] - det['box_points'][1]) / 2
+            det_center_x = (det['bb'][2] - det['bb'][0]) / 2
+            det_center_y = (det['bb'][3] - det['bb'][1]) / 2
             det_center = np.array([det_center_x, det_center_y])
             dist = np.linalg.norm(box_center - det_center)
 
-            det_height = det['box_points'][3] - det['box_points'][1]
+            det_height = det['bb'][3] - det['bb'][1]
             det_height_ratio = new_height / det_height
 
-            features = np.array([dist, fb_error, overlap, det_height_ratio, LK_height_ratio])
-            pred = self.classifier.decision_function(features)
+            features = np.array([[dist, fb_error, overlap, det_height_ratio, LK_height_ratio]])
+            pred = self.classifier.predict(features)
 
             preds.append(pred)
             all_features.append(features)
             i+= 1
 
-        return (preds, features)
+        return (preds, all_features)
         
-
     def lost_state(self, all_detections):
         preds, features = self.lost_state_common(all_detections)
 
@@ -229,8 +254,13 @@ class MDP(object):
 
         if preds[max_index] > 0:
             self.state_type = 'tracked'
+            ret_index = max_index
         else:
             self.state_type = 'lost'
+            ret_index = -1
+
+        self.image_index += 1
+        return ret_index
 
     def lost_state_train(self, all_detections, gt):
         preds, features = self.lost_state_common(all_detections)
@@ -242,7 +272,7 @@ class MDP(object):
         best_overlap = -1
         best_detection = -1
 
-        if ground_truth == None:
+        if gt == None:
             gt_detection = -1
         else:
             for i in range(len(all_detections)):
@@ -262,7 +292,7 @@ class MDP(object):
 
             k_overlaps = self.overlaps[-(k-1):] + [best_overlap]
             o_mean = statistics.mean(k_overlaps)
-            if o_mean > o_threshold:
+            if o_mean > 5000:
                 self.overlaps.append(best_overlap)
                 gt_action = 6
                 gt_detection = best_detection
@@ -273,13 +303,25 @@ class MDP(object):
 
         if pred_detection != gt_detection:
             for i in range(len(all_detections)):
-                X = features[i]
+                X = np.array(features[i])
                 if gt_detection == i:
-                    y = 1
+                    y = np.array([1])
                 else:
-                    y = -1
+                    y = np.array([-1])
 
-                self.classifier.partial_fit(X, y)
+                self.classifier.train_on_batch(X, y)
+
+        self.image_index += 1
+        return gt_detection
+
+def create_classifier():
+    model = keras.models.Sequential()
+    model.add(keras.layers.Dense(64, input_shape=(5,)))
+    model.add(keras.layers.Dense(64, activation='sigmoid'))
+    model.add(keras.layers.Dense(1, activation='tanh'))
+    model.compile(optimizer='adam', loss='mean_squared_error')
+
+    return model
 
 
 def train(gt_fname, det_fname):
@@ -287,40 +329,41 @@ def train(gt_fname, det_fname):
     gts = load_obj(gt_fname)
     dets = load_obj(det_fname)
 
+    classifier = create_classifier()
+
     # Create new MDP's for every detection in the first frame
     first_gt = gts[1]
     first_det = dets[1]
     for det in first_det:
-        m = MDP(det)
+        m = MDP(det, classifier, gts)
         m.active_state(first_gt)
         if m.obj_id != -1:
             MDP_dict[m.obj_id] = m
 
-    for i in xrange(2, len(gts)+1):
-        curr_dets = copy.deepcopy(dets[i])
+    for i in range(2, len(gts)+1):
+        print('Iter ' + str(i))
+        curr_dets = copy.deepcopy(dets[i]).tolist()
         curr_gts = gts[i]
         seen = {}
+
         for key in MDP_dict:
             if MDP_dict[key].state_type == 'tracked':
                 det = m.tracked_state(curr_dets, curr_gts)
-                if det != None:
-                    curr_dets.remove(det)
-                seen[key] = 0
-
-        for key in MDP_dict:
-            if MDP_dict[key].state_type == 'lost' and key not in seen:
+                if det != -1:
+                    curr_dets = curr_dets[:det] + curr_dets[det+1:]
+            elif MDP_dict[key].state_type == 'lost':
                 imp_gt = None
-                for j in xrange(len(curr_gts)):
-                    if key == curr_gts[i]['id']:
-                        imp_gt = curr_gts[i]['id']
+                for j in range(len(curr_gts)):
+                    if key == curr_gts[j]['id']:
+                        imp_gt = curr_gts[j]
                         break
-                det = m.lost_state_train(imp_gt)
-                if det != None:
-                    curr_dets.remove(det)
-                seen[key] = 0
+                det = m.lost_state_train(curr_dets, imp_gt)
+                if det != -1:
+                    curr_dets = curr_dets[:det] + curr_dets[det+1:]
 
         for elem in curr_dets:
-            m = MDP(det)
+            print('\tNew elem!')
+            m = MDP(elem, classifier, gts)
             m.active_state(first_gt)
             if m.obj_id != -1 and m.obj_id not in MDP_dict:
                 MDP_dict[m.obj_id] = m
@@ -339,7 +382,7 @@ def test(gt_fname, det_fname):
         if m.obj_id != -1:
             MDP_dict[m.obj_id] = m
 
-    for i in xrange(2, len(gts)+1):
+    for i in range(2, len(gts)+1):
         curr_dets = copy.deepcopy(dets[i])
         curr_gts = gts[i]
         seen = {}
@@ -368,7 +411,7 @@ def test(gt_fname, det_fname):
 
 
 
-
+train('data/train/TUD-Stadtmitte/gt/gt.txt', 'data/train/TUD-Stadtmitte/det/det.txt')
 
 
 

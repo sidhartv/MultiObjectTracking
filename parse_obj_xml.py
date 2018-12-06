@@ -10,7 +10,6 @@ def load_obj(name ):
         return pickle.load(f)
 
 def read_gt(filename, is_det=False):
-
 	ret_dict = {}
 	f = open(filename, 'r')
 	for line in f:
@@ -21,7 +20,10 @@ def read_gt(filename, is_det=False):
 		y1 = float(l[3])
 		w = float(l[4])
 		h = float(l[5])
-		conf = int(l[6])
+		if is_det:
+			conf = float(l[6])
+		else:
+			conf = int(l[6])
 		x2 = x1 + w
 		y2 = y1 + h
 		ob_dict = {}
@@ -36,11 +38,13 @@ def read_gt(filename, is_det=False):
 	for key in ret_dict:
 		ret_dict[key] = np.array(ret_dict[key])
 
-	save_obj(ret_dict, 'MOT_15_dict')
-
-read_gt('/home/rohit497/16-720/Project/MultiObjectTracking/2DMOT2015/train/ADL-Rundle-6/gt/gt.txt')
-s = load_obj('MOT_15_dict')
-print(s[1])
+	save_obj(ret_dict, filename)
 
 
+print("import")
+#read_gt('/home/rohit497/16-720/Project/MultiObjectTracking/2DMOT2015/train/ADL-Rundle-6/gt/gt.txt')
+#s = load_obj('MOT_15_dict')
+#print(s[1])
 
+read_gt('data/train/TUD-Stadtmitte/gt/gt.txt', is_det=False)
+read_gt('data/train/TUD-Stadtmitte/det/det.txt', is_det=True)
