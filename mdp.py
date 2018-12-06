@@ -70,7 +70,7 @@ class MDP(object):
             pts[i][0][1] += y0
 
 
-        p0 = np.float32(pt).reshape(-1, 1, 2)
+        p0 = np.float32(pts).reshape(-1, 1, 2)
         new_img = self.get_image(self.image_index + 1)
         
         # perform LK tracking
