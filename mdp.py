@@ -58,10 +58,10 @@ class MDP(object):
         pts = cv2.goodFeaturesToTrack(template, **feature_params)
 
         # add corners
-        pts.append(np.array([[x0, y0]]))
-        pts.append(np.array([[x0, y1]]))
-        pts.append(np.array([[x1, y0]]))
-        pts.append(np.array([[x1, y1]]))
+        pts.append(np.array([[0, 0]]))
+        pts.append(np.array([[0, y1-y0]]))
+        pts.append(np.array([[x1-x0, 0]]))
+        pts.append(np.array([[x1-x0, y1-y0]]))
 
         # Add the (x0, y0) offset back, because good features were found on the 
         # template image
@@ -196,7 +196,7 @@ class MDP(object):
             features = np.array([dist, fb_error, overlap, det_height_ratio, LK_height_ratio])
             pred = self.lost_svm.predict(features)
 
-            
+
 
 
 
