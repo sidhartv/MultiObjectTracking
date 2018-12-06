@@ -309,7 +309,50 @@ def train(gt_fname, det_fname):
 
         for key in MDP_dict:
             if MDP_dict[key].state_type == 'lost' and key not in seen:
-                det = m.lost_state()
+                imp_gt = None
+                for j in xrange(len(curr_gts)):
+                    if key == curr_gts[i]['id']:
+                        imp_gt = curr_gts[i]['id']
+                        break
+                det = m.lost_state_train(imp_gt)
+                if det != None:
+                    curr_dets.remove(det)
+                seen[key] = 0
+
+        for elem in curr_dets:
+            m = MDP(det)
+            m.active_state(first_gt)
+            if m.obj_id != -1 and m.obj_id not in MDP_dict:
+                MDP_dict[m.obj_id] = m
+
+def test(gt_fname, det_fname):
+    MDP_dict = {}
+    gts = load_obj(gt_fname)
+    dets = load_obj(det_fname)
+
+    # Create new MDP's for every detection in the first frame
+    first_gt = gts[1]
+    first_det = dets[1]
+    for det in first_det:
+        m = MDP(det)
+        m.active_state(first_gt)
+        if m.obj_id != -1:
+            MDP_dict[m.obj_id] = m
+
+    for i in xrange(2, len(gts)+1):
+        curr_dets = copy.deepcopy(dets[i])
+        curr_gts = gts[i]
+        seen = {}
+        for key in MDP_dict:
+            if MDP_dict[key].state_type == 'tracked':
+                det = m.tracked_state(curr_dets, curr_gts)
+                if det != None:
+                    curr_dets.remove(det)
+                seen[key] = 0
+
+        for key in MDP_dict:
+            if MDP_dict[key].state_type == 'lost' and key not in seen:
+                det = m.lost_state(curr_dets)
                 if det != None:
                     curr_dets.remove(det)
                 seen[key] = 0
